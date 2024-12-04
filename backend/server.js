@@ -13,6 +13,72 @@ const db = mysql.createConnection({
     password: '',
     database: 'GestionEtudiants'
 });
+const GoogleStrategy = require('passport-google-oauth20').Strategy;
+
+passport.use(new GoogleStrategy(
+    {
+        clientID: '1011541733762-6odmumlhq4nut9vseoghhvm2m9pch0hi.apps.googleusercontent.com',
+        clientSecret: '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',
+        callbackURL: 'http://localhost:3000/auth/google/callback',
+    },
+    (accessToken, refreshToken, profile, done) => {
+        const user = {
+            googleId: profile.id,
+            name: profile.displayName,
+            email: profile.emails[0].value, // Utilise le premier email
+        };
+        // Simuler une opération async (ex: recherche ou insertion dans la DB)
+        return done(null, user);
+    }
+));
+
+// Middleware pour serialiser/déserialiser l'utilisateur
+passport.serializeUser((user, done) => done(null, user));
+passport.deserializeUser((user, done) => done(null, user));
+
+// Initialisation Passport
+app.use(passport.initialize());
+// Démarrer l'authentification Google
+app.get('/auth/google',
+    passport.authenticate('google', { scope: ['profile', 'email'] })
+);
+
+// Gérer le callback après l'authentification
+app.get('/auth/google/callback',
+    passport.authenticate('google', { failureRedirect: '/login' }),
+    (req, res) => {
+        const { googleId, name, email } = req.user;
+
+        // Vérifier si l'utilisateur existe déjà dans la base de données
+        db.query('SELECT * FROM users WHERE google_id = ?', [googleId], (err, result) => {
+            if (err) {
+                console.error('Erreur SQL:', err);
+                return res.status(500).send('Erreur de base de données');
+            }
+
+            if (result.length > 0) {
+                res.status(200).json({ message: 'Connexion réussie', user: result[0] });
+            } else {
+                // Ajouter un nouvel utilisateur si inexistant
+                db.query(
+                    'INSERT INTO users (google_id, name, email) VALUES (?, ?, ?)',
+                    [googleId, name, email],
+                    (err, result) => {
+                        if (err) {
+                            console.error('Erreur SQL:', err);
+                            return res.status(500).send('Erreur de base de données');
+                        }
+                        res.status(201).json({
+                            message: 'Utilisateur enregistré avec succès',
+                            user: { id: result.insertId, googleId, name, email },
+                        });
+                    }
+                );
+            }
+        });
+    }
+);
+
 passport.use(new FacebookTokenStrategy(
     {
         clientID: '812871074242144', 
